@@ -167,19 +167,28 @@ export default function App() {
     setShowForm(false); setSaving(false);
   };
 
-  const deleteItem = async (id) => {
-    await supabase.from("items").delete().eq("id", id);
-const item = items.find(i => i.id === id);
+const deleteItem = async (id) => {
+  const item = items.find((i) => i.id === id);
 
-if (item?.photo_url) {
-  const fileName = item.photo_url.split("/").pop();
-  await supabase.storage.from("photos").remove([fileName]);
-}
-    setItems(items.filter((i) => i.id !== id));
-    if (selectedDate && !items.filter((i) => i.id !== id && i.date === selectedDate).length)
-      setSelectedDate(null);
-  };
+  if (item?.photo_url) {
+    const fileName = item.photo_url.split("/").pop();
 
+    await supabase.storage
+      .from("photos")
+      .remove([fileName]);
+  }
+
+  await supabase.from("items").delete().eq("id", id);
+
+  setItems(items.filter((i) => i.id !== id));
+
+  if (
+    selectedDate &&
+    !items.filter((i) => i.id !== id && i.date === selectedDate).length
+  ) {
+    setSelectedDate(null);
+  }
+};
   const todayKey = getToday();
   const todayDone = items.some((i) => i.date === todayKey);
   const streak = calcStreak(items);
