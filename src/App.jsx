@@ -168,6 +168,7 @@ export default function App() {
   };
 
 const deleteItem = async (id) => {
+ const deleteItem = async (id) => {
   const item = items.find((i) => i.id === id);
 
   if (item?.photo_url) {
