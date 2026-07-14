@@ -119,7 +119,7 @@ function ItemCard({ item, onDelete, onEdit }) {
   );
 }
 
-function EntryForm({ initial, saving, onSave, onCancel }) {
+function EntryForm({ initial, targetDate, saving, onSave, onCancel }) {
   const isEdit = !!initial;
   const [name, setName] = useState(initial?.name || "");
   const [isBook, setIsBook] = useState(initial?.is_book || false);
@@ -163,7 +163,9 @@ function EntryForm({ initial, saving, onSave, onCancel }) {
 
   return (
     <div style={{ background: "#141416", border: "1px solid #2A2A30", borderRadius: 16, padding: 20 }}>
-      {isEdit && <div style={{ fontSize: 12, color: "#818CF8", fontFamily: "sans-serif", marginBottom: 10 }}>항목 수정</div>}
+      <div style={{ fontSize: 12, color: "#818CF8", fontFamily: "sans-serif", marginBottom: 10 }}>
+        {isEdit ? "항목 수정" : `${new Date(targetDate + "T00:00:00").toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" })} 기록`}
+      </div>
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         {[false, true].map((v) => (
           <button key={String(v)} onClick={() => { setIsBook(v); setMethod(v ? "책 정리" : "버리기"); }} style={{ flex: 1, padding: "9px 0", borderRadius: 10, fontSize: 13, border: `1px solid ${isBook === v ? "#818CF8" : "#2A2A30"}`, background: isBook === v ? "#1A1A2E" : "transparent", color: isBook === v ? "#818CF8" : "#6B6B70", cursor: "pointer", fontFamily: "sans-serif" }}>{v ? "📚 책" : "📦 물건"}</button>
@@ -214,6 +216,7 @@ export default function App() {
   const [tab, setTab] = useState("home");
   const [formMode, setFormMode] = useState(null); // null | "add" | item object (edit)
   const [selectedDate, setSelectedDate] = useState(null);
+  const [entryDate, setEntryDate] = useState(getToday());
   const [calMonthKey, setCalMonthKey] = useState(getToday().slice(0, 7));
   const [homeMonthKey, setHomeMonthKey] = useState(getToday().slice(0, 7));
   const [search, setSearch] = useState("");
@@ -250,7 +253,7 @@ export default function App() {
       is_book: formData.is_book,
       book_read: formData.book_read,
       photo_url,
-      date: getToday(),
+      date: entryDate,
     };
 
     const { data, error } = await supabase.from("items").insert([newItem]).select();
@@ -260,6 +263,7 @@ export default function App() {
       return;
     }
     if (data) setItems((prev) => [data[0], ...prev]);
+    setHomeMonthKey(entryDate.slice(0, 7));
     setFormMode(null);
     setSaving(false);
   };
@@ -386,13 +390,14 @@ export default function App() {
       {tab === "home" && (
         <div style={{ padding: "20px 20px 0" }}>
           {!formMode ? (
-            <button onClick={() => setFormMode("add")} style={{ width: "100%", padding: "16px", background: todayDone ? "#141416" : "#1A1A2E", border: `1px solid ${todayDone ? "#2A2A30" : "#2A2A5A"}`, borderRadius: 16, color: todayDone ? "#6B6B70" : "#818CF8", fontSize: 15, cursor: "pointer", fontFamily: "sans-serif", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <button onClick={() => { setEntryDate(todayKey); setFormMode("add"); }} style={{ width: "100%", padding: "16px", background: todayDone ? "#141416" : "#1A1A2E", border: `1px solid ${todayDone ? "#2A2A30" : "#2A2A5A"}`, borderRadius: 16, color: todayDone ? "#6B6B70" : "#818CF8", fontSize: 15, cursor: "pointer", fontFamily: "sans-serif", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
               <span style={{ fontSize: 20 }}>+</span>
               {todayDone ? "오늘 하나 더 비우기" : "오늘 비운 것 기록하기"}
             </button>
           ) : (
             <EntryForm
               initial={typeof formMode === "object" ? formMode : null}
+              targetDate={typeof formMode === "object" ? formMode.date : entryDate}
               saving={saving}
               onCancel={() => setFormMode(null)}
               onSave={handleFormSave}
@@ -436,7 +441,7 @@ export default function App() {
                 const hasDone = (itemsByDate[dateStr]?.length || 0) > 0;
                 const count = itemsByDate[dateStr]?.length || 0;
                 return (
-                  <button key={di} onClick={() => hasDone && setSelectedDate(dateStr)} style={{ aspectRatio: "1", borderRadius: 10, background: isToday ? "#1A1A2E" : hasDone ? "#141416" : "transparent", border: isToday ? "1px solid #818CF8" : hasDone ? "1px solid #2A2A30" : "1px solid transparent", color: isToday ? "#818CF8" : di === 0 ? "#E24B4A" : di === 6 ? "#818CF8" : hasDone ? "#E8E6E0" : "#3A3A40", fontSize: 13, cursor: hasDone ? "pointer" : "default", fontFamily: "sans-serif", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1, padding: 0 }}>
+                  <button key={di} onClick={() => dateStr <= todayKey && setSelectedDate(dateStr)} style={{ aspectRatio: "1", borderRadius: 10, background: isToday ? "#1A1A2E" : hasDone ? "#141416" : "transparent", border: isToday ? "1px solid #818CF8" : hasDone ? "1px solid #2A2A30" : "1px solid transparent", color: isToday ? "#818CF8" : di === 0 ? "#E24B4A" : di === 6 ? "#818CF8" : hasDone ? "#E8E6E0" : "#3A3A40", fontSize: 13, cursor: dateStr <= todayKey ? "pointer" : "default", fontFamily: "sans-serif", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1, padding: 0 }}>
                     <span>{day}</span>
                     {hasDone && <span style={{ fontSize: 14, lineHeight: 1 }}>✓</span>}
                     {count > 1 && <span style={{ fontSize: 8, color: "#818CF8", lineHeight: 1 }}>{count}개</span>}
@@ -468,13 +473,18 @@ export default function App() {
       {selectedDate && (
         <div onClick={() => setSelectedDate(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 100 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: "#141416", borderRadius: "20px 20px 0 0", border: "1px solid #2A2A30", padding: "20px 20px 48px", width: "100%", maxWidth: 480, maxHeight: "70vh", overflowY: "auto" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <span style={{ fontSize: 14, color: "#A8A4A0", fontFamily: "sans-serif" }}>
                 {new Date(selectedDate + "T00:00:00").toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" })}
               </span>
               <button onClick={() => setSelectedDate(null)} style={{ background: "transparent", border: "none", color: "#6B6B70", fontSize: 22, cursor: "pointer" }}>×</button>
             </div>
-            {(itemsByDate[selectedDate] || []).map((item) => <ItemCard key={item.id} item={item} onDelete={deleteItem} onEdit={(it) => { setSelectedDate(null); setTab("home"); setFormMode(it); }} />)}
+            <button onClick={() => { const date = selectedDate; setSelectedDate(null); setEntryDate(date); setHomeMonthKey(date.slice(0, 7)); setTab("home"); setFormMode("add"); }} style={{ width: "100%", padding: "12px", marginBottom: 8, background: "#1A1A2E", border: "1px solid #2A2A5A", borderRadius: 12, color: "#818CF8", fontSize: 14, cursor: "pointer", fontFamily: "sans-serif" }}>
+              + 이 날짜에 비운 것 기록하기
+            </button>
+            {(itemsByDate[selectedDate] || []).length === 0 ? (
+              <div style={{ textAlign: "center", padding: "24px 0 10px", color: "#4A4A50", fontSize: 13, fontFamily: "sans-serif" }}>이 날짜에는 아직 기록이 없어요</div>
+            ) : (itemsByDate[selectedDate] || []).map((item) => <ItemCard key={item.id} item={item} onDelete={deleteItem} onEdit={(it) => { setSelectedDate(null); setTab("home"); setFormMode(it); }} />)}
           </div>
         </div>
       )}
