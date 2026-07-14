@@ -7,7 +7,20 @@ const METHODS = [
   { value: "책 정리", emoji: "📚", color: "#F59E0B" },
 ];
 
-function getToday() { return new Date().toISOString().slice(0, 10); }
+function formatLocalDate(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getToday() { return formatLocalDate(); }
+
+function shiftMonth(yearMonth, amount) {
+  const [y, m] = yearMonth.split("-").map(Number);
+  const date = new Date(y, m - 1 + amount, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
 
 function calcStreak(items) {
   if (!items.length) return 0;
@@ -17,8 +30,8 @@ function calcStreak(items) {
   for (const day of days) {
     if (day === cursor) {
       streak++;
-      const d = new Date(cursor); d.setDate(d.getDate() - 1);
-      cursor = d.toISOString().slice(0, 10);
+      const d = new Date(cursor + "T00:00:00"); d.setDate(d.getDate() - 1);
+      cursor = formatLocalDate(d);
     } else if (day < cursor) break;
   }
   return streak;
@@ -202,6 +215,8 @@ export default function App() {
   const [formMode, setFormMode] = useState(null); // null | "add" | item object (edit)
   const [selectedDate, setSelectedDate] = useState(null);
   const [calMonthKey, setCalMonthKey] = useState(getToday().slice(0, 7));
+  const [homeMonthKey, setHomeMonthKey] = useState(getToday().slice(0, 7));
+  const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { fetchItems(); }, []);
@@ -219,7 +234,7 @@ export default function App() {
     let photo_url = null;
 
     if (formData.photo) {
-      const fileName = `${Date.now()}.jpg`;
+      const fileName = `${crypto.randomUUID()}.jpg`;
       const { error: uploadError } = await supabase.storage
         .from("photos").upload(fileName, formData.photo, { contentType: "image/jpeg" });
       if (!uploadError) {
@@ -239,7 +254,12 @@ export default function App() {
     };
 
     const { data, error } = await supabase.from("items").insert([newItem]).select();
-    if (!error && data) setItems([data[0], ...items]);
+    if (error) {
+      alert(`저장 실패: ${error.message}`);
+      setSaving(false);
+      return;
+    }
+    if (data) setItems((prev) => [data[0], ...prev]);
     setFormMode(null);
     setSaving(false);
   };
@@ -255,7 +275,7 @@ export default function App() {
         const oldName = original.photo_url.split("/").pop();
         await supabase.storage.from("photos").remove([oldName]);
       }
-      const fileName = `${Date.now()}.jpg`;
+      const fileName = `${crypto.randomUUID()}.jpg`;
       const { error: uploadError } = await supabase.storage
         .from("photos").upload(fileName, formData.photo, { contentType: "image/jpeg" });
       if (!uploadError) {
@@ -278,19 +298,29 @@ export default function App() {
     };
 
     const { error } = await supabase.from("items").update(updated).eq("id", id);
-    if (!error) setItems(items.map((i) => (i.id === id ? { ...i, ...updated } : i)));
+    if (error) {
+      alert(`수정 실패: ${error.message}`);
+      setSaving(false);
+      return;
+    }
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...updated } : i)));
     setFormMode(null);
     setSaving(false);
   };
 
   const deleteItem = async (id) => {
+    if (!window.confirm("이 기록을 삭제할까? 삭제하면 복구할 수 없어.")) return;
     const item = items.find((i) => i.id === id);
     if (item?.photo_url) {
       const fileName = item.photo_url.split("/").pop();
       await supabase.storage.from("photos").remove([fileName]);
     }
-    await supabase.from("items").delete().eq("id", id);
-    setItems(items.filter((i) => i.id !== id));
+    const { error } = await supabase.from("items").delete().eq("id", id);
+    if (error) {
+      alert(`삭제 실패: ${error.message}`);
+      return;
+    }
+    setItems((prev) => prev.filter((i) => i.id !== id));
     if (selectedDate && !items.filter((i) => i.id !== id && i.date === selectedDate).length) {
       setSelectedDate(null);
     }
@@ -300,7 +330,15 @@ export default function App() {
   const todayDone = items.some((i) => i.date === todayKey);
   const streak = calcStreak(items);
   const bookCount = items.filter((i) => i.method === "책 정리").length;
-  const thisMonthItems = items.filter((i) => i.date.slice(0, 7) === todayKey.slice(0, 7));
+  const normalizedSearch = search.trim().toLowerCase();
+  const homeMonthItems = items.filter((i) => {
+    const sameMonth = i.date?.slice(0, 7) === homeMonthKey;
+    const matchesSearch = !normalizedSearch ||
+      i.name?.toLowerCase().includes(normalizedSearch) ||
+      i.memo?.toLowerCase().includes(normalizedSearch) ||
+      i.method?.toLowerCase().includes(normalizedSearch);
+    return sameMonth && matchesSearch;
+  });
   const itemsByDate = {};
   items.forEach((item) => {
     if (!itemsByDate[item.date]) itemsByDate[item.date] = [];
@@ -361,12 +399,17 @@ export default function App() {
             />
           )}
           <div style={{ marginTop: 20 }}>
-            <div style={{ fontSize: 13, color: "#818CF8", fontFamily: "sans-serif", marginBottom: 8, fontWeight: 500 }}>이번 달 · {thisMonthItems.length}개</div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <button onClick={() => setHomeMonthKey(shiftMonth(homeMonthKey, -1))} style={{ background: "#141416", border: "1px solid #2A2A30", borderRadius: 9, width: 34, height: 34, color: "#A8A4A0", fontSize: 16, cursor: "pointer" }}>‹</button>
+              <div style={{ fontSize: 13, color: "#818CF8", fontFamily: "sans-serif", fontWeight: 500 }}>{homeMonthKey.replace("-", "년 ")}월 · {homeMonthItems.length}개</div>
+              <button onClick={() => setHomeMonthKey(shiftMonth(homeMonthKey, 1))} style={{ background: "#141416", border: "1px solid #2A2A30", borderRadius: 9, width: 34, height: 34, color: "#A8A4A0", fontSize: 16, cursor: "pointer" }}>›</button>
+            </div>
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="이름·메모·방식 검색" style={{ width: "100%", padding: "10px 12px", background: "#141416", border: "1px solid #2A2A30", borderRadius: 10, color: "#E8E6E0", fontSize: 13, marginBottom: 8, fontFamily: "sans-serif", boxSizing: "border-box" }} />
             {loading ? (
               <div style={{ textAlign: "center", padding: "32px 0", color: "#3A3A40", fontSize: 13, fontFamily: "sans-serif" }}>불러오는 중...</div>
-            ) : thisMonthItems.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "32px 0", color: "#3A3A40", fontSize: 13, fontFamily: "sans-serif" }}>아직 이번 달 기록이 없어요</div>
-            ) : thisMonthItems.map((item) => <ItemCard key={item.id} item={item} onDelete={deleteItem} onEdit={(it) => setFormMode(it)} />)}
+            ) : homeMonthItems.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "32px 0", color: "#3A3A40", fontSize: 13, fontFamily: "sans-serif" }}>이 달에는 기록이 없어요</div>
+            ) : homeMonthItems.map((item) => <ItemCard key={item.id} item={item} onDelete={deleteItem} onEdit={(it) => setFormMode(it)} />)}
           </div>
         </div>
       )}
@@ -375,9 +418,9 @@ export default function App() {
       {tab === "calendar" && (
         <div style={{ padding: "20px 20px 0" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-            <button onClick={() => { const d = new Date(cy, cm - 2, 1); setCalMonthKey(d.toISOString().slice(0, 7)); }} style={{ background: "#141416", border: "1px solid #2A2A30", borderRadius: 10, width: 36, height: 36, color: "#A8A4A0", fontSize: 16, cursor: "pointer" }}>‹</button>
+            <button onClick={() => setCalMonthKey(shiftMonth(calMonthKey, -1))} style={{ background: "#141416", border: "1px solid #2A2A30", borderRadius: 10, width: 36, height: 36, color: "#A8A4A0", fontSize: 16, cursor: "pointer" }}>‹</button>
             <span style={{ fontSize: 15, color: "#E8E6E0", fontFamily: "sans-serif", fontWeight: 500 }}>{cy}년 {cm}월</span>
-            <button onClick={() => { const d = new Date(cy, cm, 1); setCalMonthKey(d.toISOString().slice(0, 7)); }} style={{ background: "#141416", border: "1px solid #2A2A30", borderRadius: 10, width: 36, height: 36, color: "#A8A4A0", fontSize: 16, cursor: "pointer" }}>›</button>
+            <button onClick={() => setCalMonthKey(shiftMonth(calMonthKey, 1))} style={{ background: "#141416", border: "1px solid #2A2A30", borderRadius: 10, width: 36, height: 36, color: "#A8A4A0", fontSize: 16, cursor: "pointer" }}>›</button>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 }}>
             {["일", "월", "화", "수", "목", "금", "토"].map((d, i) => (
